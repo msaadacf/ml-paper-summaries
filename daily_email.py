@@ -20,7 +20,7 @@ EMAIL_MODE = os.environ.get("EMAIL_MODE", "gmail")
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
 def fetch_and_score(query, days_back=1, max_results=50):
-    """Return list of arXiv result dicts filtered by `days_back`."""
+    """Returns the list of arXiv result dictionaries filtered by `days_back`."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days_back)
     client = arxiv.Client()
