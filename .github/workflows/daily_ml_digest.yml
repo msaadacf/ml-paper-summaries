@@ -1,1 +1,34 @@
-name: placeholder
+name: Daily Research Digest
+
+on:
+  schedule:
+    # This runs daily at 08:00 UTC. Modify cron as needed.
+    - cron: "0 8 * * *"
+  workflow_dispatch:  # manual run from GitHub Actions tab
+
+jobs:
+  send_digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run daily email script
+        env:
+          # Choose one of the following sets of secrets:
+          EMAIL_MODE: ${{ secrets.EMAIL_MODE }}        
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}        
+        run: |
+          python daily_email.py
+
