@@ -107,7 +107,7 @@ if st.button("Unsubscribe"):
             st.error(f"Failed to save subscription: {resp.status_code} {resp.text}")
 
 st.markdown("---")
-st.write("Current subscribers (preview):")
-st.write(subscribers)
+st.write("I will continue to make changes to this app as I improve this service for you, so you can expect betterment overtime :)")
+# st.write(subscribers)
 
 
