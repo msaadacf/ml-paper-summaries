@@ -1,18 +1,11 @@
 # streamlit_app.py
 import streamlit as st
-import requests
-import json
-import base64
+from supabase import create_client
 import os
-from typing import List
+from datetime import datetime, timedelta, timezone
+from daily_email import get_top_for_category, build_email_html, send_via_gmail, send_via_sendgrid
 
-# Configuration...
-REPO_OWNER = "msaadacf"      
-REPO_NAME = "ml-paper-summaries"            
-BRANCH = "main"
-FILE_PATH = "subscribers.json"
-
-# Allowing only following categories for now:
+# Config
 CATEGORIES = [
     "machine learning",
     "robotics",
@@ -24,90 +17,75 @@ CATEGORIES = [
     "graph neural network"
 ]
 
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+EMAIL_MODE = st.secrets["EMAIL_MODE"]
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 st.title("📚 ML Paper Digest — Subscribe")
+st.markdown("Choose up to 3 categories and subscribe. You'll receive daily research updates in your email.")
 
-st.markdown("Please choose up to 3 categories and subscribe. Your subscription will be saved. You can unsubcribe later if you want :)")
-
-# Input fields
 email = st.text_input("Email address", "")
 selected = st.multiselect("Choose up to 3 categories", CATEGORIES, max_selections=3)
 
-# Load GitHub token from Streamlit secrets
-try:
-    GH_TOKEN = st.secrets["GH_PAT"]
-except Exception:
-    GH_TOKEN = None
+def add_to_all_subscribers(email):
+    exists = supabase.table("all_subscribers").select("*").eq("email", email).execute()
+    if not exists.data:
+        supabase.table("all_subscribers").insert({"email": email}).execute()
 
-if GH_TOKEN is None:
-    st.error("GitHub token not found. Add `GH_PAT` to Streamlit Secrets (see README).")
-    st.stop()
+def add_to_subscribers(email, categories):
+    supabase.table("subscribers").upsert({
+        "email": email,
+        "categories": categories
+    }).execute()
 
-def get_subscribers_from_repo() -> dict:
-    """Reads subscribers.json from repo (or return empty)."""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-    r = requests.get(url, headers={"Authorization": f"token {GH_TOKEN}"})
-    if r.status_code == 200:
-        data = r.json()
-        content = base64.b64decode(data["content"]).decode()
-        return json.loads(content), data["sha"]
-    elif r.status_code == 404:
-        return {}, None
+def remove_from_subscribers(email):
+    supabase.table("subscribers").delete().eq("email", email).execute()
+
+def fetch_subscribers():
+    resp = supabase.table("subscribers").select("*").execute()
+    return {row["email"]: row["categories"] for row in resp.data}
+
+def send_confirmation_email(email, categories):
+    # Fetch last 24h papers for these categories
+    category_papers = {}
+    for cat in categories:
+        category_papers[cat] = get_top_for_category(cat, top_n=5)
+    html = build_email_html(email, category_papers)
+
+    if EMAIL_MODE == "gmail":
+        sender = st.secrets["EMAIL_USER"]
+        send_via_gmail(sender, email, html)
     else:
-        st.error(f"Error reading subscribers file: {r.status_code} {r.text}")
-        return {}, None
+        sender = st.secrets["EMAIL_USER"]
+        send_via_sendgrid(sender, email, html)
 
-def commit_subscribers_to_repo(subs: dict, sha=None, message="Update subscribers"):
-    """Creates or update subscribers.json in the repo."""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-    content_b64 = base64.b64encode(json.dumps(subs, indent=2).encode()).decode()
-    payload = {
-        "message": message,
-        "content": content_b64,
-        "branch": BRANCH
-    }
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(url, headers={"Authorization": f"token {GH_TOKEN}"}, json=payload)
-    return r
-
-# Load current subscribers
-subscribers, sha = get_subscribers_from_repo()
-
-# Subscribe button
+# Subscribe
 if st.button("Subscribe"):
     if not email:
         st.error("Please enter an email.")
     elif not selected:
-        st.error("Please select at least one category.")
+        st.error("Select at least one category.")
     elif len(selected) > 3:
-        st.error("Please choose up to 3 categories.")
+        st.error("Max 3 categories allowed.")
     else:
-        subscribers[email] = selected
-        resp = commit_subscribers_to_repo(subscribers, sha=sha, message=f"Add/Update subscription for {email}")
-        if resp.status_code in (200, 201):
-            st.success(f"Subscribed {email} to {', '.join(selected)}")
-            # update sha for future updates
-            sha = resp.json().get("content", {}).get("sha")
-        else:
-            st.error(f"Ah, failed to save subscription: {resp.status_code} {resp.text}")
+        add_to_subscribers(email, selected)
+        add_to_all_subscribers(email)
+        send_confirmation_email(email, selected)
+        st.success(f"Subscribed {email} to {', '.join(selected)}. Confirmation email sent!")
 
-# Unsubscribe button
+# Unsubscribe
 if st.button("Unsubscribe"):
     if not email:
-        st.error("Enter an email.")
-    elif email not in subscribers:
-        st.warning("Email not subscribed.")
+        st.error("Please enter an email.")
     else:
-        del subscribers[email]
-        resp = commit_subscribers_to_repo(subscribers, sha=sha, message=f"Remove subscription for {email}")
-        if resp.status_code in (200, 201):
-            st.success(f"Unsubscribed {email}")
-            sha = resp.json().get("content", {}).get("sha")
+        subs = fetch_subscribers()
+        if email not in subs:
+            st.warning("Email not found in active subscribers.")
         else:
-            st.error(f"Failed to save subscription: {resp.status_code} {resp.text}")
+            remove_from_subscribers(email)
+            st.success(f"{email} unsubscribed successfully.")
 
 st.markdown("---")
-st.write("I will continue to make changes to this app as I improve this service for you, so you can expect betterment overtime :)")
-# st.write(subscribers)
-
-
+st.caption("Thank you for subscribing. If you want to ever unsubscibe, just add your email above and click 'Unsubscribe'. Thank you!")
