@@ -22,38 +22,41 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
-def fetch_and_score(query, max_results=50):
+
+def fetch_and_score(query, days_back=1, max_results=50):
+    """
+    Fetch papers from arXiv safely, with proper query formatting and
+    graceful handling of empty pages.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days_back)
     client = Client()
 
-    # Ensure query is wrapped properly to avoid malformed search strings
-    safe_query = f'({query.strip()})'
+    # Wrap query to handle spaces and special characters
+    safe_query = f'all:"{query.strip()}"'
 
+    search = Search(
+        query=safe_query,
+        max_results=max_results,
+        sort_by=arxiv.SortCriterion.SubmittedDate,
+        sort_order=arxiv.SortOrder.Descending
+    )
+
+    papers = []
     try:
-        # Request results — arXiv API will return fewer if there aren’t enough
-        search = Search(
-            query=safe_query,
-            max_results=max_results,
-            sort_by="submittedDate",
-            sort_order="descending"
-        )
-
-        papers = []
         for result in client.results(search):
-            # Build paper dict with a dummy scoring method
-            score = 1.0  # You can replace this with your real scoring function
-            papers.append({
-                "title": result.title,
-                "summary": result.summary,
-                "url": result.entry_id,
-                "score": score
-            })
-
-        return papers
-
+            if result.published >= cutoff:
+                papers.append({
+                    "title": result.title.strip(),
+                    "abstract": result.summary.strip().replace("\n", " "),
+                    "link": result.entry_id
+                })
     except UnexpectedEmptyPageError:
-        # Happens if the query has no matches or the page offset is too high
+        # No results found — return empty list instead of crashing
         print(f"[WARN] No results found for query: {query}")
-        return []
+
+    return papers
+
 
 def get_top_for_category(category, top_n=10):
     papers = fetch_and_score(category, days_back=1, max_results=50)
@@ -68,6 +71,7 @@ def get_top_for_category(category, top_n=10):
             p['summary'] = p['abstract'][:200] + "..."
     return selected
 
+
 def build_email_html(user_email, category_papers):
     html = """<html><body style="font-family: Arial, sans-serif;">"""
     html += f"<h2>📢 Daily Research Digest</h2><p>Hi {user_email}, here are your selected topics:</p>"
@@ -78,6 +82,7 @@ def build_email_html(user_email, category_papers):
         html += "</ol>"
     html += "<p style='font-size:small;color:gray;'>Generated automatically.</p></body></html>"
     return html
+
 
 def send_via_gmail(sender, receiver, html_content):
     smtp_server = "smtp.gmail.com"
@@ -94,9 +99,11 @@ def send_via_gmail(sender, receiver, html_content):
         server.login(username, password)
         server.sendmail(sender, receiver, msg.as_string())
 
+
 def fetch_subscribers():
     resp = supabase.table("subscribers").select("*").execute()
     return resp.data
+
 
 def main():
     subscribers = fetch_subscribers()
@@ -112,6 +119,7 @@ def main():
             sender = os.environ.get("EMAIL_USER")
             send_via_gmail(sender, email, html)
         print(f"Sent to {email}")
+
 
 if __name__ == "__main__":
     main()
