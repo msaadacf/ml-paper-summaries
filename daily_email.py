@@ -1,6 +1,5 @@
 # daily_email.py
 import os
-import json
 import arxiv
 from datetime import datetime, timedelta, timezone
 from transformers import pipeline
@@ -8,23 +7,26 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import time
+from supabase import create_client
 
-# Configuration
+# Config
 MIN_FALLBACK = 5
 DAILY_LIMIT = 10
-
-# choosing method
 EMAIL_MODE = os.environ.get("EMAIL_MODE", "gmail")
 
-# Loading summarizer once (pipeline downloads the model)
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
 def fetch_and_score(query, days_back=1, max_results=50):
-    """Returns the list of arXiv result dictionaries filtered by `days_back`."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days_back)
     client = arxiv.Client()
-    search = arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.SubmittedDate, sort_order=arxiv.SortOrder.Descending)
+    search = arxiv.Search(query=query, max_results=max_results,
+                          sort_by=arxiv.SortCriterion.SubmittedDate,
+                          sort_order=arxiv.SortOrder.Descending)
     papers = []
     for result in client.results(search):
         if result.published >= cutoff:
@@ -40,12 +42,11 @@ def get_top_for_category(category, top_n=10):
     if len(papers) < MIN_FALLBACK:
         papers = fetch_and_score(category, days_back=7, max_results=200)
     selected = papers[:top_n]
-    # summarize
     for p in selected:
         try:
             p['summary'] = summarizer(p['abstract'], max_length=70, min_length=25, do_sample=False)[0]['summary_text']
-            time.sleep(0.1)  # small sleep to be polite
-        except Exception as e:
+            time.sleep(0.1)
+        except Exception:
             p['summary'] = p['abstract'][:200] + "..."
     return selected
 
@@ -75,39 +76,24 @@ def send_via_gmail(sender, receiver, html_content):
         server.login(username, password)
         server.sendmail(sender, receiver, msg.as_string())
 
-def send_via_sendgrid(sender, receiver, html_content):
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail
-    sg_key = os.environ.get("SENDGRID_API_KEY")
-    message = Mail(from_email=sender, to_emails=receiver, subject="📢 Your Daily Research Digest", html_content=html_content)
-    sg = SendGridAPIClient(sg_key)
-    resp = sg.send(message)
-    if resp.status_code >= 400:
-        raise Exception(f"SendGrid error: {resp.status_code} {resp.body}")
+def fetch_subscribers():
+    resp = supabase.table("subscribers").select("*").execute()
+    return resp.data
 
 def main():
-    # read subscribers.json that will be in repo root
-    if not os.path.exists("subscribers.json"):
-        print("No subscribers.json found — exiting.")
-        return
-    with open("subscribers.json", "r") as f:
-        subscribers = json.load(f)
-
-    for user_email, categories in subscribers.items():
+    subscribers = fetch_subscribers()
+    for sub in subscribers:
+        email = sub["email"]
+        categories = sub["categories"]
         category_papers = {}
         for cat in categories:
-            prints = get_top_for_category(cat, top_n=5)  # 5 each
-            category_papers[cat] = prints
-        html = build_email_html(user_email, category_papers)
+            category_papers[cat] = get_top_for_category(cat, top_n=5)
+        html = build_email_html(email, category_papers)
 
         if EMAIL_MODE == "gmail":
             sender = os.environ.get("EMAIL_USER")
-            send_via_gmail(sender, user_email, html)
-        else:
-            sender = os.environ.get("EMAIL_USER")
-            send_via_sendgrid(sender, user_email, html)
-        print(f"Sent to {user_email}")
+            send_via_gmail(sender, email, html)
+        print(f"Sent to {email}")
 
 if __name__ == "__main__":
     main()
-
