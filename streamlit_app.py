@@ -3,7 +3,7 @@ import streamlit as st
 from supabase import create_client
 import os
 from datetime import datetime, timedelta, timezone
-from daily_email import get_top_for_category, build_email_html, send_via_gmail, send_via_sendgrid
+from daily_email import get_top_for_category, build_email_html, send_via_gmail
 
 # Config
 CATEGORIES = [
@@ -57,9 +57,6 @@ def send_confirmation_email(email, categories):
     if EMAIL_MODE == "gmail":
         sender = st.secrets["EMAIL_USER"]
         send_via_gmail(sender, email, html)
-    else:
-        sender = st.secrets["EMAIL_USER"]
-        send_via_sendgrid(sender, email, html)
 
 # Subscribe
 if st.button("Subscribe"):
