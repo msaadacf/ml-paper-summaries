@@ -1,6 +1,7 @@
 # daily_email.py
 import os
 import arxiv
+from arxiv import Client, Search, UnexpectedEmptyPageError
 from datetime import datetime, timedelta, timezone
 from transformers import pipeline
 import smtplib
@@ -8,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import time
 from supabase import create_client
+
 
 # Config
 MIN_FALLBACK = 5
@@ -20,22 +22,38 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
-def fetch_and_score(query, days_back=1, max_results=50):
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=days_back)
-    client = arxiv.Client()
-    search = arxiv.Search(query=query, max_results=max_results,
-                          sort_by=arxiv.SortCriterion.SubmittedDate,
-                          sort_order=arxiv.SortOrder.Descending)
-    papers = []
-    for result in client.results(search):
-        if result.published >= cutoff:
+def fetch_and_score(query, max_results=50):
+    client = Client()
+
+    # Ensure query is wrapped properly to avoid malformed search strings
+    safe_query = f'({query.strip()})'
+
+    try:
+        # Request results — arXiv API will return fewer if there aren’t enough
+        search = Search(
+            query=safe_query,
+            max_results=max_results,
+            sort_by="submittedDate",
+            sort_order="descending"
+        )
+
+        papers = []
+        for result in client.results(search):
+            # Build paper dict with a dummy scoring method
+            score = 1.0  # You can replace this with your real scoring function
             papers.append({
-                "title": result.title.strip(),
-                "abstract": result.summary.strip().replace("\n", " "),
-                "link": result.entry_id
+                "title": result.title,
+                "summary": result.summary,
+                "url": result.entry_id,
+                "score": score
             })
-    return papers
+
+        return papers
+
+    except UnexpectedEmptyPageError:
+        # Happens if the query has no matches or the page offset is too high
+        print(f"[WARN] No results found for query: {query}")
+        return []
 
 def get_top_for_category(category, top_n=10):
     papers = fetch_and_score(category, days_back=1, max_results=50)
