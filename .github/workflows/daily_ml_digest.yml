@@ -2,13 +2,24 @@ name: Daily Research Digest
 
 on:
   schedule:
-    # This runs daily at 08:00 UTC. Would be changed if a user requests.
-    - cron: "0 8 * * *"
-  workflow_dispatch:  # allows for manual run from GitHub Actions tab
+    # 13:00 UTC == 08:00 America/Chicago during CDT.
+    # (We also enforce 8am Chicago inside the script as a safety check.)
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}
 
 jobs:
   send_digest:
     runs-on: ubuntu-latest
+    env:
+      # Make localtime in logs Chicago (cron is still UTC; this is just for Python/logs)
+      TZ: America/Chicago
+      EMAIL_MODE: ${{ secrets.EMAIL_MODE }}
+      EMAIL_USER: ${{ secrets.EMAIL_USER }}
+      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+      # Add Supabase credentials to GH Actions so daily_email.py can read them
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -24,11 +35,5 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run daily email script
-        env:
-          # Accessing secrets.
-          EMAIL_MODE: ${{ secrets.EMAIL_MODE }}        
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}        
         run: |
           python daily_email.py
-
