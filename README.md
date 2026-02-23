@@ -1,4 +1,6 @@
 # AI Newsboy
+<img width="1842" height="949" alt="image" src="https://github.com/user-attachments/assets/ca37c498-fe43-4996-a844-eb0adf55ad76" />
+
 The goal behind creation of this project is to receive automated daily summaries of recent research publications with high-impact potential in AI domains. 
 
 Design summary: Automated daily arXiv research papers summaries delivered in an email, with a Streamlit subscription UI and a GitHub Actions scheduler.
