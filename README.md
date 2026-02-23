@@ -3,7 +3,7 @@
 
 The goal behind creation of this project is to receive automated daily summaries of recent research publications with high-impact potential in AI domains. 
 
-Design summary: Automated daily arXiv research papers summaries delivered in an email, with a Streamlit subscription UI and a GitHub Actions scheduler. I have currently pulled the online version to offline since my Supabase account's free trial ended. However, you can implemend it end-to-end at your side given you have free tier or paid version account at Supabase.
+Design summary: Automated daily arXiv research papers summaries delivered in an email, with a Streamlit subscription UI and a GitHub Actions scheduler. I have currently pulled the online version to offline since my Supabase account's free trial ended. You can implement it end-to-end at your side given you have free tier or paid version account at Supabase.
 
 ## What it does
 - Users subscribe via a Streamlit app by selecting up to **3** AI related categories.
